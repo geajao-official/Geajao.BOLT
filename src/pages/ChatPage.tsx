@@ -55,7 +55,7 @@ interface ChatPageProps {
 export default function ChatPage({ onBack, onSignOut, initialFriendId, initialConversationId, initialGroupId, onOpenProfile, notificationBell }: ChatPageProps) {
   const { profile } = useAuth();
   
-  // --- WebRTC Voice Call State & Logic (Fixed Signaling Flow) ---
+  // --- WebRTC Voice Call State & Logic (Stable Ref Flow) ---
   const [callState, setCallState] = useState<CallState>('idle');
   const [remoteUserId, setRemoteUserId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -63,7 +63,13 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const incomingOfferRef = useRef<any>(null); // Buffer offer until answered
+  const incomingOfferRef = useRef<any>(null);
+  const callStateRef = useRef<CallState>(callState);
+
+  // Keep ref updated with current call state without re-triggering effects
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
 
   useEffect(() => {
     if (!remoteAudioRef.current) {
@@ -74,7 +80,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
 
   const currentUserId = profile?.id || '';
 
-  // Listen for Supabase signaling
+  // Stable Supabase Realtime Listener (Depends ONLY on currentUserId)
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -85,12 +91,12 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     channel
       .on('broadcast', { event: 'call-signal' }, async ({ payload }: { payload: any }) => {
         const { type, senderId, payload: data } = payload;
+        const currentState = callStateRef.current;
 
-        if (type === 'incoming-call' && callState === 'idle') {
+        if (type === 'incoming-call' && currentState === 'idle') {
           setRemoteUserId(senderId);
           setCallState('incoming');
         } else if (type === 'offer') {
-          // Buffer the incoming offer until the receiver clicks answer
           incomingOfferRef.current = data;
         } else if (type === 'answer' && peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data));
@@ -110,7 +116,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUserId, callState]);
+  }, [currentUserId]);
 
   const createPeerConnection = (targetId: string) => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -174,7 +180,6 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
 
       const pc = createPeerConnection(remoteUserId);
 
-      // Process the buffered offer, create an answer, and send it back
       if (incomingOfferRef.current) {
         await pc.setRemoteDescription(new RTCSessionDescription(incomingOfferRef.current));
         const answer = await pc.createAnswer();
