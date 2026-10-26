@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+﻿import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { MusicProvider } from '@/context/MusicContext';
@@ -7,7 +7,7 @@ import './index.css';
 // Register Service Worker for push notifications
 if ('serviceWorker' in navigator && 'PushManager' in window) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('/service-worker.js')
       .then((swReg) => {
         console.log('Service Worker is registered', swReg);
       })

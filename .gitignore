@@ -21,3 +21,10 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Local patch backups
+.push-backup-*/
+.typecheck-fix-backup-*/
+
+# Supabase local CLI metadata
+supabase/.temp/

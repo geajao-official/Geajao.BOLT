@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+﻿import { useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import WelcomePage from '@/pages/WelcomePage';
 import AuthPage from '@/pages/AuthPage';
@@ -146,7 +146,7 @@ function AppContent() {
 
   const wrap = (node: ReactNode) => (
     <AppShell
-      active={view}
+      active={(view === 'settings' ? 'feed' : view) as import('@/components/Sidebar').SidebarView}
       viewedUserId={viewedUserId}
       onNavigate={handleAppShellNavigate}
       onSignOut={handleSignOut}

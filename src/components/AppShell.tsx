@@ -1,10 +1,12 @@
-import { type ReactNode } from 'react';
+﻿import { type ReactNode } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import type { SidebarView } from '@/components/Sidebar';
+import PushNotificationSettings from '@/components/PushNotificationSettings';
 
 interface AppShellProps {
   active: SidebarView;
+  viewedUserId?: string | null;
   onNavigate: (view: SidebarView) => void;
   onSignOut: () => void;
   bell: ReactNode;
@@ -28,6 +30,8 @@ export default function AppShell({
         onSignOut={onSignOut}
         profile={profile}
       />
+
+      <PushNotificationSettings />
 
       <main className="min-h-screen w-full min-w-0 pl-0 lg:ml-64 lg:w-auto">
         {children}

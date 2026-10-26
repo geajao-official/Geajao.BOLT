@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+﻿import { useEffect, useState, useCallback } from 'react';
 import {
   getFriendRequests, getSentRequests, getFriends, getDiscoverUsers,
   acceptFriendRequest, declineFriendRequest, removeFriend, sendFriendRequest,
@@ -112,13 +112,13 @@ export default function FriendsPage({ onBack, onSignOut: _onSignOut, onStartChat
 
         {loading ? (
           <div className="flex min-h-64 items-center justify-center rounded-3xl border border-amber-500/20 bg-[#0c1126]/80">
-            <div className="flex flex-col items-center gap-3 text-amber-400/60"><Loader2 size={28} className="animate-spin text-amber-400" /><span className="text-xs font-medium tracking-wide">Loading your network…</span></div>
+            <div className="flex flex-col items-center gap-3 text-amber-400/60"><Loader2 size={28} className="animate-spin text-amber-400" /><span className="text-xs font-medium tracking-wide">Loading your networkâ€¦</span></div>
           </div>
         ) : tab === 'discover' ? (
           <>
             <div className="group relative mb-5">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500/60 transition group-focus-within:text-amber-300" />
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or username…" className="w-full rounded-2xl border border-amber-500/20 bg-[#101733] py-3.5 pl-11 pr-4 text-sm text-amber-100 outline-none transition placeholder:text-amber-500/40 focus:border-amber-400/60 focus:bg-[#141d42]" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or usernameâ€¦" className="w-full rounded-2xl border border-amber-500/20 bg-[#101733] py-3.5 pl-11 pr-4 text-sm text-amber-100 outline-none transition placeholder:text-amber-500/40 focus:border-amber-400/60 focus:bg-[#141d42]" />
             </div>
             {filteredDiscover.length === 0 ? <EmptyState message={search ? 'No users match your search.' : 'No other verified users yet.'} /> : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -181,7 +181,7 @@ function TabButton({ active, onClick, icon, label, badge }: { active: boolean; o
   </button>;
 }
 
-function PersonButton({ name, username, avatarUrl, badge, isAdmin, onClick }: { name: string; username: string; avatarUrl: string | null; badge: any; isAdmin: boolean | null | undefined; onClick: () => void }) {
+function PersonButton({ name, username, avatarUrl, badge, isAdmin, onClick }: { name: string; username: string; avatarUrl: string | null | undefined; badge: any; isAdmin: boolean | null | undefined; onClick: () => void }) {
   return <button onClick={onClick} className="group flex min-w-0 items-center gap-3 text-left">
     <span className="shrink-0 rounded-full transition group-hover:ring-2 group-hover:ring-amber-400/40"><Avatar name={name} avatarUrl={avatarUrl} size={11} /></span>
     <span className="min-w-0"><span className="flex flex-wrap items-center gap-1.5"><span className="truncate font-bold text-amber-100 transition group-hover:text-amber-300">{name}</span><BadgeRow badge={badge ?? null} isAdmin={isAdmin ?? false} size="xs" /></span><span className="mt-1 block truncate text-xs font-medium text-amber-400/60">@{username}</span></span>
