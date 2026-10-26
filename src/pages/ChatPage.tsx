@@ -1,11 +1,9 @@
+// src/components/ChatPage.tsx
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import Avatar from '@/components/Avatar';
 import { BadgeRow } from '@/components/Badge';
-import { useWebRTCVoiceCall } from '@/hooks/useWebRTCVoiceCall';
-import { VoiceCallModal } from '@/components/VoiceCallModal';
-import { Phone } from 'lucide-react';
 import {
   getConversations,
   getMessages,
@@ -20,6 +18,8 @@ import {
 } from '@/lib/chat';
 import { Conversation, Message, Friend, ChatGroup, ChatGroupMessage } from '@/types';
 import { getFriends } from '@/lib/friends';
+import { useWebRTCVoiceCall } from '@/hooks/useWebRTCVoiceCall';
+import { VoiceCallModal } from '@/components/VoiceCallModal';
 import {
   ArrowLeft,
   Send,
@@ -29,6 +29,7 @@ import {
   X,
   Users,
   Check,
+  Phone,
 } from 'lucide-react';
 
 interface ChatPageProps {
@@ -43,6 +44,18 @@ interface ChatPageProps {
 
 export default function ChatPage({ onBack, onSignOut, initialFriendId, initialConversationId, initialGroupId, onOpenProfile, notificationBell }: ChatPageProps) {
   const { profile } = useAuth();
+  
+  // WebRTC Voice Call hook integration
+  const {
+    callState,
+    remoteUserId,
+    isMuted,
+    startCall,
+    answerCall,
+    endCall,
+    toggleMute,
+  } = useWebRTCVoiceCall(supabase, profile?.id || '');
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -71,16 +84,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     }
     setLoading(false);
   }, []);
-// WebRTC Voice Call hook
-  const {
-    callState,
-    remoteUserId,
-    isMuted,
-    startCall,
-    answerCall,
-    endCall,
-    toggleMute,
-  } = useWebRTCVoiceCall(supabase, profile?.id || '');
+
   // Initial load
   useEffect(() => {
     fetchConversations();
@@ -374,39 +378,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
             </div>
           </div>
         </header>
-{/* Active Friend Header */}
-          <header className="chat-header flex items-center justify-between border-b border-amber-500/20 px-4 py-4">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setActiveConvId(null)}
-                className="rounded-lg p-1.5 text-amber-400/80 transition hover:bg-amber-500/10 hover:text-amber-200 md:hidden"
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <Avatar name={activeFriend.friend_name} avatarUrl={activeFriend.friend_avatar_url} size={9} />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => onOpenProfile(activeFriend.friend_id)}
-                    className="font-bold text-amber-100 transition hover:text-amber-300"
-                  >
-                    {activeFriend.friend_name}
-                  </button>
-                  <BadgeRow badge={activeFriend.friend_badge ?? null} isAdmin={activeFriend.friend_is_admin ?? false} size="xs" />
-                </div>
-                <p className="text-xs font-medium text-amber-400/60">@{activeFriend.friend_username}</p>
-              </div>
-            </div>
 
-            {/* Voice Call Button */}
-            <button
-              onClick={() => startCall(activeFriend.friend_id)}
-              className="chat-icon-button flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:border-amber-400 hover:text-amber-200"
-              title="Start Voice Call"
-            >
-              <Phone size={18} />
-            </button>
-          </header>
         <div className="chat-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {loading ? (
             <div className="flex justify-center py-20">
@@ -511,26 +483,37 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
       {activeConvId && activeFriend ? (
         <div className="chat-panel relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {/* Active Friend Header */}
-          <header className="chat-header flex items-center gap-3 border-b border-amber-500/20 px-4 py-4">
-            <button
-              onClick={() => setActiveConvId(null)}
-              className="rounded-lg p-1.5 text-amber-400/80 transition hover:bg-amber-500/10 hover:text-amber-200 md:hidden"
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <Avatar name={activeFriend.friend_name} avatarUrl={activeFriend.friend_avatar_url} size={9} />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => onOpenProfile(activeFriend.friend_id)}
-                  className="font-bold text-amber-100 transition hover:text-amber-300"
-                >
-                  {activeFriend.friend_name}
-                </button>
-                <BadgeRow badge={activeFriend.friend_badge ?? null} isAdmin={activeFriend.friend_is_admin ?? false} size="xs" />
+          <header className="chat-header flex items-center justify-between border-b border-amber-500/20 px-4 py-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveConvId(null)}
+                className="rounded-lg p-1.5 text-amber-400/80 transition hover:bg-amber-500/10 hover:text-amber-200 md:hidden"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <Avatar name={activeFriend.friend_name} avatarUrl={activeFriend.friend_avatar_url} size={9} />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onOpenProfile(activeFriend.friend_id)}
+                    className="font-bold text-amber-100 transition hover:text-amber-300"
+                  >
+                    {activeFriend.friend_name}
+                  </button>
+                  <BadgeRow badge={activeFriend.friend_badge ?? null} isAdmin={activeFriend.friend_is_admin ?? false} size="xs" />
+                </div>
+                <p className="text-xs font-medium text-amber-400/60">@{activeFriend.friend_username}</p>
               </div>
-              <p className="text-xs font-medium text-amber-400/60">@{activeFriend.friend_username}</p>
             </div>
+
+            {/* Voice Call Button */}
+            <button
+              onClick={() => startCall(activeFriend.friend_id)}
+              className="chat-icon-button flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:border-amber-400 hover:text-amber-200"
+              title="Start Voice Call"
+            >
+              <Phone size={18} />
+            </button>
           </header>
 
           {/* Messages */}
@@ -838,6 +821,16 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
         </div>
       )}
 
+      {/* Voice Call Modal Component */}
+      <VoiceCallModal
+        callState={callState}
+        remoteUserId={remoteUserId}
+        isMuted={isMuted}
+        onAnswer={answerCall}
+        onEndCall={() => endCall(true)}
+        onToggleMute={toggleMute}
+      />
+
       {/* Embedded Styling */}
       <style>{`
         .chat-future {
@@ -928,15 +921,6 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
         .chat-scroll { scrollbar-color: rgba(245, 158, 11, .25) transparent; }
         .chat-scroll::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, .25); }
       `}</style>
-      {/* Voice Call Modal Component */}
-      <VoiceCallModal
-        callState={callState}
-        remoteUserId={remoteUserId}
-        isMuted={isMuted}
-        onAnswer={answerCall}
-        onEndCall={() => endCall(true)}
-        onToggleMute={toggleMute}
-      />
     </div>
   );
 }
