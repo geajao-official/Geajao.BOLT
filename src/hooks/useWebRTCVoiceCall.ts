@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { CallState } from '../types/call';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CallSignal, CallState } from '../types/call';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -16,145 +16,29 @@ export function useWebRTCVoiceCall(supabaseClient: any, currentUserId: string) {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const channelRef = useRef<any>(null);
 
-  useEffect(() => {
+  const ensureRemoteAudio = useCallback(() => {
     if (!remoteAudioRef.current) {
-      remoteAudioRef.current = new Audio();
-      remoteAudioRef.current.autoplay = true;
+      const audio = new Audio();
+      audio.autoplay = true;
+      remoteAudioRef.current = audio;
     }
   }, []);
 
-  useEffect(() => {
-    if (!currentUserId) return;
-
-    const channel = supabaseClient.channel(`user-call:${currentUserId}`, {
-      config: { broadcast: { self: false } },
-    });
-
-    channel
-      .on('broadcast', { event: 'call-signal' }, async ({ payload }: { payload: any }) => {
-        const { type, senderId, payload: data } = payload;
-
-        if (type === 'incoming-call' && callState === 'idle') {
-          setRemoteUserId(senderId);
-          setCallState('incoming');
-        } else if (type === 'offer' && peerConnectionRef.current) {
-          await handleReceiveOffer(senderId, data);
-        } else if (type === 'answer' && peerConnectionRef.current) {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data));
-          setCallState('connected');
-        } else if (type === 'ice-candidate' && peerConnectionRef.current) {
-          try {
-            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data));
-          } catch (e) {
-            console.error('Error adding ICE candidate:', e);
-          }
-        } else if (type === 'hangup') {
-          endCall(false);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabaseClient.removeChannel(channel);
-    };
-  }, [currentUserId, callState]);
-
-  const createPeerConnection = (targetId: string) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendSignal(targetId, 'ice-candidate', event.candidate);
-      }
-    };
-
-    pc.ontrack = (event) => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
-      });
-    }
-
-    peerConnectionRef.current = pc;
-    return pc;
-  };
-
-  const sendSignal = async (targetId: string, type: string, payload: any) => {
-    await supabaseClient.channel(`user-call:${targetId}`).send({
-      type: 'broadcast',
-      event: 'call-signal',
-      payload: { type, senderId: currentUserId, payload },
-    });
-  };
-
-  const startCall = async (targetUserId: string) => {
-    try {
-      setRemoteUserId(targetUserId);
-      setCallState('calling');
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStreamRef.current = stream;
-
-      const pc = createPeerConnection(targetUserId);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      await sendSignal(targetUserId, 'incoming-call', {});
-      await sendSignal(targetUserId, 'offer', offer);
-    } catch (error) {
-      console.error('Error starting call:', error);
-      endCall();
-    }
-  };
-
-  const answerCall = async () => {
-    if (!remoteUserId) return;
-    try {
-      setCallState('connected');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStreamRef.current = stream;
-
-      createPeerConnection(remoteUserId);
-    } catch (error) {
-      console.error('Error answering call:', error);
-      endCall();
-    }
-  };
-
-  const handleReceiveOffer = async (senderId: string, offer: any) => {
-    const pc = peerConnectionRef.current || createPeerConnection(senderId);
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await sendSignal(senderId, 'answer', answer);
-  };
-
-  const toggleMute = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !track.enabled;
-        setIsMuted(!track.enabled);
-      });
-    }
-  };
-
-  const endCall = (notifyRemote = true) => {
-    if (remoteUserId && notifyRemote) {
-      sendSignal(remoteUserId, 'hangup', {});
-    }
-
+  const stopLocalStream = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
 
+    setIsMuted(false);
+  }, []);
+
+  const cleanupPeerConnection = useCallback(() => {
     if (peerConnectionRef.current) {
+      peerConnectionRef.current.ontrack = null;
+      peerConnectionRef.current.onicecandidate = null;
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
@@ -162,11 +46,231 @@ export function useWebRTCVoiceCall(supabaseClient: any, currentUserId: string) {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
     }
+  }, []);
 
-    setCallState('idle');
-    setRemoteUserId(null);
-    setIsMuted(false);
-  };
+  const sendSignal = useCallback(
+    async (targetId: string, type: CallSignal['type'], payload: any) => {
+      if (!supabaseClient || !currentUserId || !targetId || !channelRef.current) {
+        return;
+      }
+
+      const signal: CallSignal = {
+        type,
+        senderId: currentUserId,
+        targetId,
+        payload,
+      };
+
+      try {
+        await channelRef.current.send({
+          type: 'broadcast',
+          event: 'call-signal',
+          payload: signal,
+        });
+      } catch (error) {
+        console.error('Error sending call signal:', error);
+      }
+    },
+    [currentUserId, supabaseClient],
+  );
+
+  const endCall = useCallback(
+    (notifyRemote = true) => {
+      if (remoteUserId && notifyRemote) {
+        void sendSignal(remoteUserId, 'hangup', {});
+      }
+
+      stopLocalStream();
+      cleanupPeerConnection();
+      setCallState('idle');
+      setRemoteUserId(null);
+    },
+    [cleanupPeerConnection, remoteUserId, sendSignal, stopLocalStream],
+  );
+
+  const createPeerConnection = useCallback(
+    (targetId: string) => {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          void sendSignal(targetId, 'ice-candidate', event.candidate.toJSON());
+        }
+      };
+
+      pc.ontrack = (event) => {
+        ensureRemoteAudio();
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = event.streams[0] || null;
+        }
+      };
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      peerConnectionRef.current = pc;
+      return pc;
+    },
+    [ensureRemoteAudio, sendSignal],
+  );
+
+  const handleIncomingOffer = useCallback(
+    async (senderId: string, offer: RTCSessionDescriptionInit) => {
+      const pc = peerConnectionRef.current || createPeerConnection(senderId);
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendSignal(senderId, 'answer', answer);
+        setRemoteUserId(senderId);
+        setCallState('connected');
+      } catch (error) {
+        console.error('Error handling incoming offer:', error);
+        endCall();
+      }
+    },
+    [createPeerConnection, endCall, sendSignal],
+  );
+
+  useEffect(() => {
+    if (!currentUserId || !supabaseClient) {
+      return;
+    }
+
+    const channel = supabaseClient.channel(`voice-call:${currentUserId}`);
+    channelRef.current = channel;
+
+    const subscription = channel
+      .on('broadcast', { event: 'call-signal' }, async (payload: any) => {
+        const signal = payload?.payload as CallSignal | undefined;
+
+        if (!signal || signal.targetId !== currentUserId) {
+          return;
+        }
+
+        if (signal.type === 'incoming-call') {
+          setRemoteUserId(signal.senderId);
+          setCallState('incoming');
+          return;
+        }
+
+        if (signal.type === 'offer' && signal.payload) {
+          await handleIncomingOffer(signal.senderId, signal.payload as RTCSessionDescriptionInit);
+          return;
+        }
+
+        if (signal.type === 'answer' && signal.payload && peerConnectionRef.current) {
+          try {
+            await peerConnectionRef.current.setRemoteDescription(
+              new RTCSessionDescription(signal.payload as RTCSessionDescriptionInit),
+            );
+            setCallState('connected');
+          } catch (error) {
+            console.error('Error setting answer:', error);
+          }
+          return;
+        }
+
+        if (signal.type === 'ice-candidate' && signal.payload && peerConnectionRef.current) {
+          try {
+            await peerConnectionRef.current.addIceCandidate(
+              new RTCIceCandidate(signal.payload as RTCIceCandidateInit),
+            );
+          } catch (error) {
+            console.error('Error adding ICE candidate:', error);
+          }
+          return;
+        }
+
+        if (signal.type === 'hangup') {
+          endCall(false);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe?.();
+      supabaseClient.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [currentUserId, endCall, handleIncomingOffer, supabaseClient]);
+
+  const startLocalStream = useCallback(async () => {
+    if (localStreamRef.current) {
+      return localStreamRef.current;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+
+    localStreamRef.current = stream;
+    return stream;
+  }, []);
+
+  const startCall = useCallback(
+    async (targetUserId: string) => {
+      try {
+        const stream = await startLocalStream();
+        const pc = createPeerConnection(targetUserId);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        setRemoteUserId(targetUserId);
+        setCallState('calling');
+
+        await sendSignal(targetUserId, 'incoming-call', {});
+        await sendSignal(targetUserId, 'offer', offer);
+
+        if (stream) {
+          stream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
+        }
+      } catch (error) {
+        console.error('Error starting call:', error);
+        endCall();
+      }
+    },
+    [createPeerConnection, endCall, sendSignal, startLocalStream],
+  );
+
+  const answerCall = useCallback(async () => {
+    if (!remoteUserId) {
+      return;
+    }
+
+    try {
+      const stream = await startLocalStream();
+      if (!peerConnectionRef.current) {
+        createPeerConnection(remoteUserId);
+      }
+
+      setCallState('connected');
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+    } catch (error) {
+      console.error('Error answering call:', error);
+      endCall();
+    }
+  }, [createPeerConnection, endCall, remoteUserId, startLocalStream]);
+
+  const toggleMute = useCallback(() => {
+    if (!localStreamRef.current) {
+      return;
+    }
+
+    localStreamRef.current.getAudioTracks().forEach((track) => {
+      track.enabled = !track.enabled;
+    });
+    setIsMuted((prev) => !prev);
+  }, []);
 
   return {
     callState,
