@@ -55,7 +55,7 @@ interface ChatPageProps {
 export default function ChatPage({ onBack, onSignOut, initialFriendId, initialConversationId, initialGroupId, onOpenProfile, notificationBell }: ChatPageProps) {
   const { profile } = useAuth();
   
-  // --- WebRTC Voice Call State & Logic (Fixed Audio & ICE Queueing) ---
+  // --- WebRTC Voice Call State & Logic (With Push Trigger & ICE Queueing) ---
   const [callState, setCallState] = useState<CallState>('idle');
   const [remoteUserId, setRemoteUserId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -80,7 +80,6 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
 
   const currentUserId = profile?.id || '';
 
-  // Helper to flush queued ICE candidates once remote description is set
   const flushIceQueue = async (pc: RTCPeerConnection) => {
     while (iceCandidateQueueRef.current.length > 0) {
       const candidate = iceCandidateQueueRef.current.shift();
@@ -92,7 +91,6 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     }
   };
 
-  // Stable Supabase Realtime Listener
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -185,8 +183,18 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      // 1. Send WebRTC real-time signaling data
       await sendSignal(targetUserId, 'incoming-call', {});
       await sendSignal(targetUserId, 'offer', offer);
+
+      // 2. Insert a row into a 'push_triggers' table to alert background push notifications
+      await supabase.from('push_triggers').insert({
+        recipient_id: targetUserId,
+        sender_id: currentUserId,
+        title: 'Incoming Voice Call',
+        body: `${profile?.full_name || 'Someone'} is calling you...`
+      });
+
     } catch (error) {
       console.error('Error starting call:', error);
       endCall();
