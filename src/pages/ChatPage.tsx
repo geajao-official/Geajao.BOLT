@@ -1,4 +1,3 @@
-// src/components/ChatPage.tsx
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
