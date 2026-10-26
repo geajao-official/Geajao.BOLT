@@ -1,3 +1,4 @@
+// src/context/AuthContext.tsx
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -40,6 +41,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await fetchProfile(user.id);
     }
   };
+
+  // Optional: Safe background push token registration on login
+  useEffect(() => {
+    if (user) {
+      (async () => {
+        try {
+          if ('serviceWorker' in navigator && 'PushManager' in window) {
+            const registration = await navigator.serviceWorker.ready;
+            // Uncomment and add your VAPID public key when ready for web push:
+            /*
+            const subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: 'YOUR_VAPID_PUBLIC_KEY'
+            });
+            await supabase.from('user_devices').upsert({
+              user_id: user.id,
+              push_subscription: subscription,
+            }, { onConflict: 'user_id' });
+            */
+          }
+        } catch (err) {
+          console.log('Push notification registration skipped or not configured yet.');
+        }
+      })();
+    }
+  }, [user]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
