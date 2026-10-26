@@ -55,7 +55,7 @@ interface ChatPageProps {
 export default function ChatPage({ onBack, onSignOut, initialFriendId, initialConversationId, initialGroupId, onOpenProfile, notificationBell }: ChatPageProps) {
   const { profile } = useAuth();
   
-  // --- WebRTC Voice Call State & Logic (Embedded) ---
+  // --- WebRTC Voice Call State & Logic (Fixed Signaling Flow) ---
   const [callState, setCallState] = useState<CallState>('idle');
   const [remoteUserId, setRemoteUserId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -63,6 +63,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const incomingOfferRef = useRef<any>(null); // Buffer offer until answered
 
   useEffect(() => {
     if (!remoteAudioRef.current) {
@@ -88,8 +89,9 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
         if (type === 'incoming-call' && callState === 'idle') {
           setRemoteUserId(senderId);
           setCallState('incoming');
-        } else if (type === 'offer' && peerConnectionRef.current) {
-          await handleReceiveOffer(senderId, data);
+        } else if (type === 'offer') {
+          // Buffer the incoming offer until the receiver clicks answer
+          incomingOfferRef.current = data;
         } else if (type === 'answer' && peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data));
           setCallState('connected');
@@ -170,19 +172,20 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
 
-      createPeerConnection(remoteUserId);
+      const pc = createPeerConnection(remoteUserId);
+
+      // Process the buffered offer, create an answer, and send it back
+      if (incomingOfferRef.current) {
+        await pc.setRemoteDescription(new RTCSessionDescription(incomingOfferRef.current));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendSignal(remoteUserId, 'answer', answer);
+        incomingOfferRef.current = null;
+      }
     } catch (error) {
       console.error('Error answering call:', error);
       endCall();
     }
-  };
-
-  const handleReceiveOffer = async (senderId: string, offer: any) => {
-    const pc = peerConnectionRef.current || createPeerConnection(senderId);
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await sendSignal(senderId, 'answer', answer);
   };
 
   const toggleMute = () => {
@@ -213,6 +216,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
       remoteAudioRef.current.srcObject = null;
     }
 
+    incomingOfferRef.current = null;
     setCallState('idle');
     setRemoteUserId(null);
     setIsMuted(false);
