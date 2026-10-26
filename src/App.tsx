@@ -13,7 +13,14 @@ import AppShell from '@/components/AppShell';
 import NotificationBell from '@/components/NotificationBell';
 import { NotificationLinkType } from '@/types';
 import { Loader2 } from 'lucide-react';
-
+// Add this inside src/main.tsx or your root component
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch((err) => {
+      console.error('Service worker registration failed:', err);
+    });
+  });
+}
 type Page = 'welcome' | 'auth' | 'admin-pin' | 'admin-panel';
 type View = 'feed' | 'profile' | 'friends' | 'chat' | 'settings';
 type AdminRole = 'admin' | 'moderator';
