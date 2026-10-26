@@ -53,6 +53,13 @@ function updateBtn() {
 
   pushButton.disabled = false;
 }
+navigator.serviceWorker.register('sw.js')
+.then(function(swReg) {
+  console.log('Service Worker is registered', swReg);
+
+  swRegistration = swReg;
+  initializeUI();
+})
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MusicProvider>
