@@ -55,7 +55,7 @@ interface ChatPageProps {
 export default function ChatPage({ onBack, onSignOut, initialFriendId, initialConversationId, initialGroupId, onOpenProfile, notificationBell }: ChatPageProps) {
   const { profile } = useAuth();
   
-  // --- WebRTC Voice Call State & Logic (Stable Ref Flow) ---
+  // --- WebRTC Voice Call State & Logic (Fixed Audio & ICE Queueing) ---
   const [callState, setCallState] = useState<CallState>('idle');
   const [remoteUserId, setRemoteUserId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -65,8 +65,8 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const incomingOfferRef = useRef<any>(null);
   const callStateRef = useRef<CallState>(callState);
+  const iceCandidateQueueRef = useRef<any[]>([]);
 
-  // Keep ref updated with current call state without re-triggering effects
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
@@ -80,7 +80,19 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
 
   const currentUserId = profile?.id || '';
 
-  // Stable Supabase Realtime Listener (Depends ONLY on currentUserId)
+  // Helper to flush queued ICE candidates once remote description is set
+  const flushIceQueue = async (pc: RTCPeerConnection) => {
+    while (iceCandidateQueueRef.current.length > 0) {
+      const candidate = iceCandidateQueueRef.current.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.error('Error adding queued ICE candidate:', e);
+      }
+    }
+  };
+
+  // Stable Supabase Realtime Listener
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -98,14 +110,21 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
           setCallState('incoming');
         } else if (type === 'offer') {
           incomingOfferRef.current = data;
-        } else if (type === 'answer' && peerConnectionRef.current) {
-          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data));
-          setCallState('connected');
-        } else if (type === 'ice-candidate' && peerConnectionRef.current) {
-          try {
-            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data));
-          } catch (e) {
-            console.error('Error adding ICE candidate:', e);
+        } else if (type === 'answer') {
+          if (peerConnectionRef.current) {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data));
+            await flushIceQueue(peerConnectionRef.current);
+            setCallState('connected');
+          }
+        } else if (type === 'ice-candidate') {
+          if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
+            try {
+              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data));
+            } catch (e) {
+              console.error('Error adding ICE candidate:', e);
+            }
+          } else {
+            iceCandidateQueueRef.current.push(data);
           }
         } else if (type === 'hangup') {
           endCall(false);
@@ -130,6 +149,9 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     pc.ontrack = (event) => {
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.play().catch((err) => {
+          console.error('Error attempting to play remote audio stream:', err);
+        });
       }
     };
 
@@ -182,6 +204,8 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
 
       if (incomingOfferRef.current) {
         await pc.setRemoteDescription(new RTCSessionDescription(incomingOfferRef.current));
+        await flushIceQueue(pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await sendSignal(remoteUserId, 'answer', answer);
@@ -222,6 +246,7 @@ export default function ChatPage({ onBack, onSignOut, initialFriendId, initialCo
     }
 
     incomingOfferRef.current = null;
+    iceCandidateQueueRef.current = [];
     setCallState('idle');
     setRemoteUserId(null);
     setIsMuted(false);
