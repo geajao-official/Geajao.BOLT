@@ -1,5 +1,3 @@
-// src/types/call.ts
-
 export type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
 export interface CallSignal {
