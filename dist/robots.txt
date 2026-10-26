@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://geajao-bolt.vercel.app/sitemap.xml
+Sitemap: https://geajao.bolt.host/sitemap.xml
