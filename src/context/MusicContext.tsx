@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  ReactNode,
+} from 'react';
+
 import {
   fetchTracks,
   getCachedTracks,
@@ -7,6 +16,7 @@ import {
   getSelectedTrackId,
   setSelectedTrackId,
 } from '@/lib/backgroundMusic';
+
 import MusicBar from '@/components/MusicBar';
 
 interface MusicContextType {
@@ -21,40 +31,64 @@ interface MusicContextType {
 const MusicContext = createContext<MusicContextType | undefined>(undefined);
 
 export function MusicProvider({ children }: { children: ReactNode }) {
-  const [tracks, setTracks] = useState<MusicTrack[]>(() => getCachedTracks() ?? []);
-  const [selectedId, setSelectedId] = useState<string | null>(() => getSelectedTrackId());
+  const [tracks, setTracks] = useState<MusicTrack[]>(
+    () => getCachedTracks() ?? []
+  );
+
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => getSelectedTrackId()
+  );
+
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Load track metadata, but do not load the audio files.
   useEffect(() => {
-    fetchTracks().then(setTracks);
-    const onChange = () => {
-      if (getCachedTracks() === undefined) {
-        fetchTracks().then(setTracks);
-      } else {
-        setTracks(getCachedTracks() ?? []);
+    let cancelled = false;
+
+    const loadTracks = async () => {
+      try {
+        const result = await fetchTracks();
+        if (!cancelled) {
+          setTracks(result);
+        }
+      } catch (error) {
+        console.error('Failed to load background music tracks:', error);
       }
     };
+
+    void loadTracks();
+
+    const onChange = () => {
+      const cachedTracks = getCachedTracks();
+
+      if (cachedTracks !== undefined) {
+        setTracks(cachedTracks);
+      } else {
+        void loadTracks();
+      }
+    };
+
     window.addEventListener(MUSIC_CHANGED_EVENT, onChange);
-    return () => window.removeEventListener(MUSIC_CHANGED_EVENT, onChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(MUSIC_CHANGED_EVENT, onChange);
+    };
   }, []);
 
-  const currentTrack = tracks.find((t) => t.id === selectedId) ?? null;
+  const currentTrack =
+    tracks.find((track) => track.id === selectedId) ?? null;
 
+  // Selecting a track must not start downloading or playing it.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) {
-      setIsPlaying(false);
-      return;
-    }
-    if (currentTrack) {
-      if (audio.src !== currentTrack.url) audio.src = currentTrack.url;
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-    } else {
-      audio.pause();
-      audio.removeAttribute('src');
-      setIsPlaying(false);
-    }
+    if (!audio) return;
+
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setIsPlaying(false);
   }, [currentTrack]);
 
   const selectTrack = (id: string | null) => {
@@ -62,14 +96,28 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     setSelectedTrackId(id);
   };
 
-  const togglePlay = () => {
+  // Audio is loaded only after the user explicitly presses Play.
+  const togglePlay = async () => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
-    if (audio.paused) {
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-    } else {
+
+    if (!audio.paused) {
       audio.pause();
       setIsPlaying(false);
+      return;
+    }
+
+    try {
+      if (audio.src !== currentTrack.url) {
+        audio.src = currentTrack.url;
+        audio.load();
+      }
+
+      await audio.play();
+      setIsPlaying(true);
+    } catch (error) {
+      setIsPlaying(false);
+      console.error('Unable to play background music:', error);
     }
   };
 
@@ -84,7 +132,14 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         hasMusic: tracks.length > 0,
       }}
     >
-      <audio ref={audioRef} loop className="hidden" id="geajai-bg-music" />
+      <audio
+        ref={audioRef}
+        loop
+        preload="none"
+        className="hidden"
+        id="geajai-bg-music"
+      />
+
       {children}
       <MusicBar />
     </MusicContext.Provider>
@@ -93,6 +148,10 @@ export function MusicProvider({ children }: { children: ReactNode }) {
 
 export function useBackgroundMusic(): MusicContextType {
   const ctx = useContext(MusicContext);
-  if (!ctx) throw new Error('useBackgroundMusic must be used within MusicProvider');
+
+  if (!ctx) {
+    throw new Error('useBackgroundMusic must be used within MusicProvider');
+  }
+
   return ctx;
 }
