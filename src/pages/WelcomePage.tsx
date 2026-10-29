@@ -491,7 +491,9 @@ interface WelcomePageProps {
 
 export default function WelcomePage({ onGetIn }: WelcomePageProps) {
   const [photos, setPhotos] = useState<string[]>([]);
-  const [currentIdx, setCurrentIdx] = useState(0);
+  // EGRESS FIX (edit 1/4): track the current slide AND the one fading out, so only those
+  // (plus the next one) are ever downloaded instead of every slideshow photo at once.
+  const [slide, setSlide] = useState({ cur: 0, prev: -1 });
   const [artifactRotation, setArtifactRotation] = useState({ x: -12, y: -28 });
   const [isArtifactDragging, setIsArtifactDragging] = useState(false);
   const artifactDragRef = useRef({ x: 0, y: 0, rotationX: -12, rotationY: -28 });
@@ -518,8 +520,10 @@ export default function WelcomePage({ onGetIn }: WelcomePageProps) {
 
   useEffect(() => {
     if (photos.length <= 1) return;
+    // EGRESS FIX (edit 2/4): skip advancing while the tab is hidden, and use the new slide state.
     const interval = window.setInterval(() => {
-      setCurrentIdx((prev) => (prev + 1) % photos.length);
+      if (document.hidden) return; // don't advance (or download) while the tab is in the background
+      setSlide((s) => ({ cur: (s.cur + 1) % photos.length, prev: s.cur }));
     }, 6000);
     return () => window.clearInterval(interval);
   }, [photos.length]);
@@ -598,9 +602,12 @@ useEffect(() => {
     apply(1);
   };
 }, []);
-  const goPrev = () => setCurrentIdx((prev) => (prev - 1 + photos.length) % photos.length);
-  const goNext = () => setCurrentIdx((prev) => (prev + 1) % photos.length);
+  const goPrev = () => setSlide((s) => ({ cur: (s.cur - 1 + photos.length) % photos.length, prev: s.cur }));
+  const goNext = () => setSlide((s) => ({ cur: (s.cur + 1) % photos.length, prev: s.cur }));
   const hasPhotos = photos.length > 0;
+  // EGRESS FIX (edit 3/4): only these slides are downloaded: current, the one fading out, and the next one (preload).
+  const nextIdx = photos.length > 1 ? (slide.cur + 1) % photos.length : -1;
+  const shouldLoad = (idx: number) => idx === slide.cur || idx === slide.prev || idx === nextIdx;
 
   const handleArtifactPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -1043,8 +1050,10 @@ useEffect(() => {
       {hasPhotos && (
         <div className="pointer-events-none absolute inset-0" aria-label="Featured community photos">
           {photos.map((url, idx) => (
-            <div key={`${url}-${idx}`} className="absolute inset-0 transition-opacity duration-[1400ms] ease-in-out" style={{ opacity: idx === currentIdx ? 0.22 : 0 }} aria-hidden={idx !== currentIdx}>
-              <img src={url} alt={`Community showcase ${idx + 1}`} className="h-full w-full object-cover" />
+            // EGRESS FIX (edit 4/4): every slide keeps its container (so the crossfade still works),
+            // but an <img> only gets a src when it is current, fading out, or next in line.
+            <div key={`${url}-${idx}`} className="absolute inset-0 transition-opacity duration-[1400ms] ease-in-out" style={{ opacity: idx === slide.cur ? 0.22 : 0 }} aria-hidden={idx !== slide.cur}>
+              <img src={shouldLoad(idx) ? url : undefined} alt={`Community showcase ${idx + 1}`} decoding="async" className="h-full w-full object-cover" />
               <div className="absolute inset-0 bg-[#080c1c]/78" />
             </div>
           ))}
